@@ -2973,6 +2973,7 @@ it.effect("keeps completed runs completed when pull request refresh fails", () =
 
 function captureRootRunTermination(input: {
   readonly key: string;
+  readonly resultSchema?: OrchestrationV2Run["resultSchema"];
   readonly shouldFinalizeRun: () => Effect.Effect<boolean, ProjectionStore.ProjectionStoreV2Error>;
   readonly rejectTerminalWrite?: boolean;
   readonly hasUnpairedRunInterruptRequest?: () => Effect.Effect<boolean, never>;
@@ -3136,6 +3137,7 @@ function captureRootRunTermination(input: {
         run: {
           id: ids.runId,
           threadId: ids.threadId,
+          resultSchema: input.resultSchema,
           ordinal: 1,
           providerInstanceId,
         } as OrchestrationV2Run,
@@ -3725,5 +3727,43 @@ it.effect("keeps a failed root's still-running native children live while the ru
       written.some((event) => event.type === "subagent.updated"),
       "a child that outlives the failed root must not be settled with it",
     );
+  }),
+);
+
+it.effect("persists a typed failure when a schema turn completes without an answer", () =>
+  Effect.gen(function* () {
+    const { finalEvents } = yield* captureRootRunTermination({
+      key: "schema:missing",
+      resultSchema: { type: "object" },
+      shouldFinalizeRun: () => Effect.succeed(true),
+      events: (ids) => Stream.make(rootTerminalEvent(ids, "completed")),
+    });
+    const run = finalEvents.find((event) => event.type === "run.updated");
+    assert.isDefined(run);
+    if (run?.type === "run.updated") {
+      assert.deepEqual(run.payload.resultFailure, { type: "missing_output" });
+      assert.isUndefined(run.payload.typedResult);
+    }
+  }),
+);
+
+it.effect("persists native structured output on the run", () =>
+  Effect.gen(function* () {
+    const { finalEvents } = yield* captureRootRunTermination({
+      key: "schema:native",
+      resultSchema: { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] },
+      shouldFinalizeRun: () => Effect.succeed(true),
+      events: (ids) =>
+        Stream.make({
+          ...rootTerminalEvent(ids, "completed"),
+          structuredOutput: { value: { ok: true } },
+        }),
+    });
+    const run = finalEvents.find((event) => event.type === "run.updated");
+    assert.isDefined(run);
+    if (run?.type === "run.updated") {
+      assert.deepEqual(run.payload.typedResult, { value: { ok: true } });
+      assert.isUndefined(run.payload.resultFailure);
+    }
   }),
 );

@@ -386,6 +386,7 @@ export const ClaudeProviderCapabilitiesV2 = {
     activeSteeringInterruptsTools: true,
     supportsSteeringByInterruptRestart: false,
     supportsQueuedMessages: true,
+    supportsOutputSchema: true,
     terminalStatusQuality: "strong",
   },
   streaming: {
@@ -1455,6 +1456,7 @@ export function makeClaudeQueryOptions(input: {
   readonly modelSelection: ModelSelection;
   readonly nativeThreadId: string;
   readonly resume: boolean;
+  readonly resultSchema?: Readonly<Record<string, unknown>>;
   readonly resumeSessionAt?: string;
   readonly cwd: string | null;
   readonly attachmentsDir?: string;
@@ -1533,6 +1535,9 @@ export function makeClaudeQueryOptions(input: {
   const deviceInstructions = input.mcpServers !== undefined && input.deviceToolsAvailable === true;
   const options: ClaudeAgentSdkQueryOptions = {
     model: compiledSelection.apiModelId,
+    ...(input.resultSchema === undefined
+      ? {}
+      : { outputFormat: { type: "json_schema" as const, schema: input.resultSchema } }),
     tools: claudeAgentSdkQueryToolsForSdk(selectedTools),
     permissionMode:
       (launchArgPermissionMode as PermissionMode | null | undefined) ??
@@ -1857,14 +1862,19 @@ function resultTextFromSdkMessage(
   }
   return {
     nativeItemId: message.uuid,
-    text: message.result,
+    text:
+      Reflect.get(message, "structured_output") === undefined
+        ? message.result
+        : encodeClaudeJson(Reflect.get(message, "structured_output")),
   };
 }
 
-function claudeStructuredOutputFromSdkMessage(message: SDKMessage): unknown | null {
-  if (message.type !== "result" || message.subtype !== "success") return null;
-  const structuredOutput = Reflect.get(message, "structured_output");
-  return structuredOutput == null ? null : structuredOutput;
+function claudeStructuredOutputFromSdkMessage(
+  message: SDKMessage,
+): { readonly value: unknown } | undefined {
+  if (message.type !== "result" || message.subtype !== "success") return undefined;
+  const value: unknown = Reflect.get(message, "structured_output");
+  return value === undefined ? undefined : { value };
 }
 
 function makeProviderThread(input: {
@@ -7402,6 +7412,12 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   runOrdinal: input.context.input.runOrdinal,
                   status: input.status,
                   failure: null,
+                  ...(input.result === undefined ||
+                  claudeStructuredOutputFromSdkMessage(input.result) === undefined
+                    ? {}
+                    : {
+                        structuredOutput: claudeStructuredOutputFromSdkMessage(input.result),
+                      }),
                   threadDisposition,
                 };
           yield* Effect.all(
@@ -9189,7 +9205,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             message.subtype === "success" &&
             !message.is_error &&
             context.input.appThread.delegatedResultSchema !== undefined &&
-            claudeStructuredOutputFromSdkMessage(message) === null;
+            claudeStructuredOutputFromSdkMessage(message) === undefined;
           const resultText =
             message.type === "result" &&
             ((message.subtype === "success" && message.is_error) ||
@@ -9867,7 +9883,10 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               ? {}
               : { allowedTools: queryPolicy.allowedTools }),
           });
-          const queryPolicyKey = claudeEffectiveQueryPolicyKey(queryPolicy, mcpOverrides);
+          const queryPolicyKey = encodeClaudeJson([
+            claudeEffectiveQueryPolicyKey(queryPolicy, mcpOverrides),
+            turnInput.appThread.delegatedResultSchema ?? null,
+          ]);
           const compiledSelection = compileClaudeModelSelection(turnInput.modelSelection);
           const resumeSessionAt = yield* getNativeConversationHeadId(turnInput.providerThread);
           const existing = yield* Ref.get(queryContext);
@@ -9979,6 +9998,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             modelSelection: turnInput.modelSelection,
             nativeThreadId,
             resume: shouldResume,
+            ...(turnInput.appThread.delegatedResultSchema === undefined
+              ? {}
+              : { resultSchema: turnInput.appThread.delegatedResultSchema }),
             ...(resumeSessionAt === undefined ? {} : { resumeSessionAt }),
             cwd: turnInput.runtimePolicy.cwd,
             attachmentsDir,

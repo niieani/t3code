@@ -224,6 +224,7 @@ function makeHarness(options: HarnessOptions = {}) {
       }),
   );
   const layerLaunch = ThreadLaunch.layer.pipe(
+    Layer.provide(layerRegistry),
     Layer.provide(
       Layer.mergeAll(
         layerExternalServices,
@@ -2289,4 +2290,69 @@ it.effect("replays an accepted send after the project disables the instance", ()
       assert.fail(`expected ThreadManagementProviderInstanceDisabledError, got ${fresh._tag}`);
     }
   }).pipe(Effect.provide(Layer.mergeAll(harness.layer, layerFiles)));
+});
+
+it.effect("keeps the first message's result schema on its run only", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const schema = { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] };
+    const request = launchInput({
+      command: "schema:first",
+      thread: "schema:thread",
+      message: "Report",
+    });
+    const launched = yield* launches.launch({
+      ...request,
+      initialMessage: { text: "Report", attachments: [], resultSchema: schema },
+    });
+    yield* threads.sendToThread({
+      projectId,
+      commandId: CommandId.make("schema:second"),
+      threadId: launched.threadId,
+      messageId: MessageId.make("schema:second"),
+      text: "Continue",
+      attachments: [],
+      mode: "queue",
+      createdBy: "user",
+      creationSource: "web",
+    });
+    const projection = yield* threads.getThreadRecords(launched.threadId, ["runs"]);
+    assert.deepEqual(projection.runs[0]?.resultSchema, schema);
+    assert.equal(projection.runs.length, 2);
+    assert.isUndefined(projection.runs[1]?.resultSchema);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("refuses a schema launch before creating a thread on an unsupported provider", () => {
+  const harness = makeHarness({
+    adapters: [
+      {
+        ...adapter,
+        getCapabilities: () =>
+          Effect.succeed({
+            ...CodexProviderCapabilitiesV2,
+            turns: { ...CodexProviderCapabilitiesV2.turns, supportsOutputSchema: false },
+          }),
+      },
+    ],
+  });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const request = launchInput({
+      command: "schema:unsupported",
+      thread: "schema:unsupported",
+      message: "Report",
+    });
+    const error = yield* launches
+      .launch({
+        ...request,
+        initialMessage: { text: "Report", attachments: [], resultSchema: { type: "object" } },
+      })
+      .pipe(Effect.flip);
+    assert.equal(error._tag, "ThreadLaunchError");
+    assert.isNull(yield* threads.getThreadShell(request.threadId));
+  }).pipe(Effect.provide(harness.layer));
 });

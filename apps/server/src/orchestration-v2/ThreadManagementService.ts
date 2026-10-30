@@ -135,6 +135,7 @@ export type ThreadManagementTerminalRunStatus = Extract<
 >;
 
 export interface ThreadManagementSendInput {
+  readonly resultSchema?: OrchestrationV2Run["resultSchema"];
   readonly projectId: ProjectId;
   readonly commandId: CommandId;
   readonly threadId: ThreadId;
@@ -814,11 +815,18 @@ const make = Effect.gen(function* () {
         type: input.mode === "steer" ? "steer_active" : "restart_active",
         targetRunId: steerableRun.id,
       };
-    } else if (input.mode === "auto" && steerableRun !== undefined) {
+    } else if (
+      input.mode === "auto" &&
+      steerableRun !== undefined &&
+      input.resultSchema === undefined
+    ) {
       dispatchMode = { type: "steer_active", targetRunId: steerableRun.id };
     } else {
       dispatchMode = {
-        type: input.mode === "queue" ? "queue_after_active" : "start_immediately",
+        type:
+          input.mode === "queue" || (input.resultSchema !== undefined && steerableRun !== undefined)
+            ? "queue_after_active"
+            : "start_immediately",
       };
     }
 
@@ -830,6 +838,7 @@ const make = Effect.gen(function* () {
       ...(input.scheduledTaskId === undefined ? {} : { scheduledTaskId: input.scheduledTaskId }),
       ...(input.senderThreadId === undefined ? {} : { senderThreadId: input.senderThreadId }),
       text: input.text,
+      ...(input.resultSchema === undefined ? {} : { resultSchema: input.resultSchema }),
       attachments: input.attachments,
       ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
       dispatchMode,

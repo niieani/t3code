@@ -1,3 +1,4 @@
+import { OrchestrationV2ResultSchema } from "@t3tools/contracts";
 import { McpAttachmentInput } from "../attachment/input.ts";
 import {
   NonNegativeInt,
@@ -140,6 +141,9 @@ const ThreadLaunchTool = Tool.make("t3_thread_launch", {
         description:
           "'worktree': new checkout from `baseRef`. 'existing_worktree': bind `worktreePath`, a project worktree. 'root': project checkout, the default, not your worktree. Stack: parent branch as `baseRef`, `startFromOrigin: false`. Uncommitted edits are not copied.",
       }),
+    ),
+    resultSchema: Schema.optional(
+      OrchestrationV2ResultSchema.annotate({ description: "JSON Schema for the first turn." }),
     ),
     message: Schema.optional(
       Schema.String.check(Schema.isMaxLength(120000)).annotate({

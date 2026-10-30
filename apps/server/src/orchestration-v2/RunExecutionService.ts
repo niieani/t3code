@@ -1,3 +1,4 @@
+import { runTypedResult } from "@t3tools/provider-core/server/subagentProjection";
 import { makeAssistantStreamingFilter } from "./assistantStreaming.ts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
@@ -76,6 +77,8 @@ export interface InheritedBackgroundTurnItemRoute {
   readonly id: TurnItemId;
   readonly runId: OrchestrationV2Run["id"];
 }
+
+const encodeStructuredOutput = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 type ProviderTerminalEvent = Extract<
   ProviderAdapter.ProviderAdapterV2Event,
@@ -637,7 +640,7 @@ export const layer: Layer.Layer<
         const completedAt = input.completedAt ?? (yield* DateTime.now);
         const finalizedAttempt: OrchestrationV2RunAttempt = {
           ...input.attempt,
-          status: input.terminal.status,
+          status: input.run.resultFailure === undefined ? input.terminal.status : "failed",
           completedAt,
         };
         const shouldFinalizeRun =
@@ -704,19 +707,29 @@ export const layer: Layer.Layer<
               })
             : [];
         const persistedStatus =
-          input.terminal.status === "completed" ? "waiting" : input.terminal.status;
+          input.run.resultFailure !== undefined
+            ? "failed"
+            : input.terminal.status === "completed"
+              ? "waiting"
+              : input.terminal.status;
         // Omit delegatedCompletion; the startup snapshot must not overwrite newer acknowledgements, successors, or Stop barriers.
         const { delegatedCompletion: _delegatedCompletion, ...runWithoutDelegatedCompletion } =
           input.run;
         const finalizedRun: OrchestrationV2Run = {
           ...runWithoutDelegatedCompletion,
           status: persistedStatus,
-          completedAt: input.terminal.status === "completed" ? null : completedAt,
+          completedAt:
+            input.terminal.status === "completed" && input.run.resultFailure === undefined
+              ? null
+              : completedAt,
         };
         const finalizedRootNode: OrchestrationV2ExecutionNode = {
           ...input.rootNode,
           status: persistedStatus,
-          completedAt: input.terminal.status === "completed" ? null : completedAt,
+          completedAt:
+            input.terminal.status === "completed" && input.run.resultFailure === undefined
+              ? null
+              : completedAt,
           checkpointScopeId: input.checkpointScope.id,
         };
         const finalizedProviderThread: OrchestrationV2ProviderThread = {
@@ -985,6 +998,7 @@ export const layer: Layer.Layer<
           return;
         }
         const terminalEvent = yield* Ref.make<ProviderTerminalEvent | null>(null);
+        const finalAnswer = yield* Ref.make<string | null>(null);
         const latestTurnItemOrdinal = yield* Ref.make(input.providerTurnOrdinal * 100);
         const latestProviderThread = yield* Ref.make(input.providerThread);
         const latestRootProviderTurn = yield* Ref.make<OrchestrationV2ProviderTurn | null>(null);
@@ -1045,7 +1059,18 @@ export const layer: Layer.Layer<
           const providerThread = yield* Ref.get(latestProviderThread);
           const openSubagents = yield* Ref.get(openRunOwnedSubagents);
           yield* writeFinalRunEvents({
-            run: input.run,
+            run: {
+              ...input.run,
+              ...runTypedResult(
+                input.run.resultSchema,
+                terminal.status !== "failed" && terminal.structuredOutput !== undefined
+                  ? yield* encodeStructuredOutput(terminal.structuredOutput.value).pipe(
+                      Effect.orDie,
+                    )
+                  : yield* Ref.get(finalAnswer),
+                terminal.status,
+              ),
+            },
             rootNode: input.rootNode,
             checkpointScope: input.checkpointScope,
             providerThread,
@@ -1449,6 +1474,14 @@ export const layer: Layer.Layer<
                   Math.max(current, event.turnItem.ordinal),
                 );
               }
+              if (
+                event.type === "turn_item.updated" &&
+                event.turnItem.type === "assistant_message" &&
+                event.turnItem.runId === input.run.id &&
+                event.turnItem.nodeId === input.rootNode.id
+              ) {
+                yield* Ref.set(finalAnswer, event.turnItem.text);
+              }
               if (event.type === "turn.terminal") {
                 yield* Ref.set(terminalEvent, event);
                 yield* Ref.set(rootTerminalSeen, true);
@@ -1624,7 +1657,7 @@ export const layer: Layer.Layer<
           text: entry.text,
         }));
         const turnInput = {
-          appThread: input.appThread,
+          appThread: { ...input.appThread, delegatedResultSchema: input.run.resultSchema },
           threadId: input.run.threadId,
           runId: input.run.id,
           runOrdinal: input.run.ordinal,

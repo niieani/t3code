@@ -144,6 +144,7 @@ export const ProviderAdapterV2Event = Schema.Union([
     providerThreadId: ProviderThreadId,
     providerTurnId: ProviderTurnId,
     runOrdinal: PositiveInt,
+    structuredOutput: Schema.optional(Schema.Struct({ value: Schema.Unknown })),
     status: Schema.Literals(["completed", "interrupted", "cancelled"]),
     failure: Schema.Null,
     threadDisposition: Schema.Literals(["reusable", "broken"]),

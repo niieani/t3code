@@ -98,6 +98,7 @@ import {
 import { CheckpointServiceV2 } from "./CheckpointService.ts";
 import {
   CommandPolicyV2,
+  CommandPolicyCapabilityUnsupportedError,
   goalCommandStopsActiveRun,
   isNativeMaintenanceCommand,
   resolveMessageDispatchIntent,
@@ -5363,6 +5364,30 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       projection = yield* getProjectionWithPendingEvents(command.threadId, events);
     }
     const modelSelection = command.modelSelection ?? projection.thread.modelSelection;
+    if (command.resultSchema !== undefined) {
+      const schemaAdapter = yield* providerAdapters
+        .get(modelSelection.instanceId)
+        .pipe(mapDispatchError(command));
+      const schemaCapabilities = yield* schemaAdapter
+        .getCapabilities()
+        .pipe(mapDispatchError(command));
+      if (
+        schemaCapabilities.turns.supportsOutputSchema !== true ||
+        command.dispatchMode.type === "steer_active"
+      ) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: new CommandPolicyCapabilityUnsupportedError({
+            commandId: command.commandId,
+            threadId: command.threadId,
+            providerInstanceId: modelSelection.instanceId,
+            capability: "output_schema",
+            detail: "The provider or delivery mode cannot enforce a result schema.",
+          }),
+        });
+      }
+    }
     let dispatchMode = resolveMessageDispatchIntent(
       projection,
       command.dispatchMode,
@@ -5797,6 +5822,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         completedAt: null,
         checkpointId: null,
         contextHandoffId: null,
+        ...(command.resultSchema === undefined ? {} : { resultSchema: command.resultSchema }),
         ...(command.sourcePlanRef === undefined ? {} : { sourcePlanRef: command.sourcePlanRef }),
         ...(command.restartContinuationOfRunId === undefined
           ? {}
@@ -6140,6 +6166,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         completedAt: null,
         checkpointId: null,
         contextHandoffId: legacyImportHandoff?.id ?? null,
+        ...(command.resultSchema === undefined ? {} : { resultSchema: command.resultSchema }),
         ...(command.sourcePlanRef === undefined ? {} : { sourcePlanRef: command.sourcePlanRef }),
         ...(command.restartContinuationOfRunId === undefined
           ? {}
@@ -6832,6 +6859,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         mergeBackHandoff?.id ??
         legacyImportRecoveryHandoff?.id ??
         null,
+      ...(command.resultSchema === undefined ? {} : { resultSchema: command.resultSchema }),
       ...(command.sourcePlanRef === undefined ? {} : { sourcePlanRef: command.sourcePlanRef }),
       ...(command.restartContinuationOfRunId === undefined
         ? {}
@@ -7504,6 +7532,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         senderThreadId: command.parentThreadId,
         messageId: childMessageId,
         text: command.task,
+        ...(command.resultSchema === undefined ? {} : { resultSchema: command.resultSchema }),
         attachments: [],
         modelSelection: command.modelSelection,
         dispatchMode:

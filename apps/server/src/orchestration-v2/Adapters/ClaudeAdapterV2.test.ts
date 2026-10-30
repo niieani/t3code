@@ -235,6 +235,21 @@ function makeClaudeTestTurnInput(input: {
 }
 
 describe("ClaudeAdapterV2 runtime query policy", () => {
+  it("translates a requested result schema into the SDK output format", () => {
+    const resultSchema = {
+      type: "object",
+      properties: { ok: { type: "boolean" } },
+      required: ["ok"],
+    };
+    const options = ClaudeAdapterV2.makeClaudeQueryOptions({
+      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+      nativeThreadId: "schema-thread",
+      resume: false,
+      cwd: "/workspace",
+      resultSchema,
+    });
+    assert.deepEqual(options.outputFormat, { type: "json_schema", schema: resultSchema });
+  });
   it.each([
     "-- --thinking-display omitted",
     "--thinking-display summarized -- --thinking-display omitted",

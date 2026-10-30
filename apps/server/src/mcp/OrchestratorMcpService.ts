@@ -835,6 +835,8 @@ function threadDetail(
 function threadRun(run: OrchestrationV2Run): OrchestratorMcpThreadRun {
   return {
     runId: run.id,
+    ...(run.typedResult === undefined ? {} : { typedResult: run.typedResult }),
+    ...(run.resultFailure === undefined ? {} : { resultFailure: run.resultFailure }),
     ordinal: run.ordinal,
     status: run.status,
     providerInstanceId: run.modelSelection.instanceId,
@@ -1703,6 +1705,7 @@ const make = Effect.gen(function* () {
       providerInstanceId: task.providerInstanceId,
       model: task.model,
       summary: task.result,
+      typedResult: task.resultValue ?? null,
       resultContextTransferId: null,
       latestTerminalRunId: null,
       latestTerminalStatus: terminal
@@ -2976,6 +2979,7 @@ const make = Effect.gen(function* () {
           ...(parent === undefined ? {} : { senderThreadId: parent.thread.id }),
           messageId,
           text: input.message,
+          ...(input.resultSchema === undefined ? {} : { resultSchema: input.resultSchema }),
           attachments: [],
           mode,
           createdBy: "agent",
@@ -3039,13 +3043,17 @@ const make = Effect.gen(function* () {
       return {
         threadId: input.threadId,
         runId: result.run?.id ?? null,
+        ...(result.run?.typedResult === undefined ? {} : { typedResult: result.run.typedResult }),
+        ...(result.run?.resultFailure === undefined
+          ? {}
+          : { resultFailure: result.run.resultFailure }),
         status,
         timedOut: result.timedOut,
         ...(wakesCaller ? { next: ORCHESTRATOR_MCP_RUNNING_TASK_NEXT } : {}),
         ...(result.resultRun === undefined
           ? {}
           : {
-              resultRun: { runId: result.resultRun.id, status: runOutcome(result.resultRun) },
+              resultRun: { ...threadRun(result.resultRun), status: runOutcome(result.resultRun) },
             }),
       } satisfies OrchestratorMcpThreadWaitResult;
     }),

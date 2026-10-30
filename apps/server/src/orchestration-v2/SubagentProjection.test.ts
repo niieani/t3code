@@ -26,6 +26,7 @@ import {
   endOrphanedNativeSubagent,
   endRunlessRootTurns,
   parseDelegatedResultValue,
+  runTypedResult,
 } from "@t3tools/provider-core/server/subagentProjection";
 
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
@@ -474,3 +475,20 @@ it.effect("ends a runless root turn's items when its node already ended", () =>
     );
   }),
 );
+
+it("validates a turn result and reports missing, invalid and provider failures", () => {
+  const schema = { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] };
+  assert.deepEqual(runTypedResult(schema, '{"ok":true}', "completed"), {
+    typedResult: { value: { ok: true } },
+  });
+  assert.deepEqual(runTypedResult(schema, '{"ok":42}', "completed"), {
+    resultFailure: { type: "invalid_output" },
+  });
+  assert.deepEqual(runTypedResult(schema, null, "completed"), {
+    resultFailure: { type: "missing_output" },
+  });
+  assert.deepEqual(runTypedResult(schema, '{"ok":true}', "failed"), {
+    resultFailure: { type: "provider_failed" },
+  });
+  assert.deepEqual(runTypedResult(undefined, '{"ok":true}', "completed"), {});
+});

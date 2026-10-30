@@ -48,6 +48,18 @@ export function parseDelegatedResultValue(
   }
 }
 
+export function runTypedResult(
+  schema: OrchestrationV2Run["resultSchema"],
+  text: string | null,
+  status: string,
+): Pick<OrchestrationV2Run, "typedResult" | "resultFailure"> {
+  if (schema === undefined) return {};
+  if (status !== "completed") return { resultFailure: { type: "provider_failed" } };
+  if (text === null || text.trim() === "") return { resultFailure: { type: "missing_output" } };
+  const typedResult = parseDelegatedResultValue(text, schema);
+  return typedResult === null ? { resultFailure: { type: "invalid_output" } } : { typedResult };
+}
+
 function trimmed(value: string | null | undefined): string | undefined {
   const result = value?.trim();
   return result && result.length > 0 ? result : undefined;

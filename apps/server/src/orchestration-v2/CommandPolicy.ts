@@ -22,6 +22,7 @@ export const ForkExecutionPolicyV2 = Schema.Literals(["native_fork", "portable_c
 export type ForkExecutionPolicyV2 = typeof ForkExecutionPolicyV2.Type;
 
 export const CommandPolicyCapability = Schema.Literals([
+  "output_schema",
   "queued_messages",
   "active_steering",
   "interrupt",

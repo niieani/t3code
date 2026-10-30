@@ -670,7 +670,14 @@ export type OrchestrationV2ThreadLaunchWorkspaceStrategy =
 
 export const ORCHESTRATION_V2_WORKSPACE_PREPARATION_FAILURE_CODE = "workspace_preparation_failed";
 
+export const OrchestrationV2ResultFailure = Schema.Struct({
+  type: Schema.Literals(["missing_output", "invalid_output", "provider_failed"]),
+});
+
 export const OrchestrationV2Run = Schema.Struct({
+  resultSchema: Schema.optional(OrchestrationV2ResultSchema),
+  typedResult: Schema.optional(Schema.Struct({ value: Schema.Unknown })),
+  resultFailure: Schema.optional(OrchestrationV2ResultFailure),
   id: RunId,
   threadId: ThreadId,
   ordinal: PositiveInt,
@@ -3105,6 +3112,7 @@ export const OrchestrationV2Command = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("message.dispatch"),
+    resultSchema: Schema.optional(OrchestrationV2ResultSchema),
     notification: Schema.optional(OrchestrationV2Notification),
     /** Sends this pending guest message; the server uses the guest's text, not `text`. */
     guestMessageId: Schema.optional(GuestMessageId),
@@ -3602,6 +3610,7 @@ export const OrchestrationV2ThreadLaunchInput = Schema.Struct({
   workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy,
   initialMessage: Schema.optional(
     Schema.Struct({
+      resultSchema: Schema.optional(OrchestrationV2ResultSchema),
       messageId: Schema.optional(MessageId),
       text: Schema.String,
       context: Schema.optional(OrchestrationMessageContext),

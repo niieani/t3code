@@ -38,6 +38,7 @@ import {
   OrchestrationV2Actor,
   OrchestrationV2CreationSource,
   OrchestrationV2ResultSchema,
+  OrchestrationV2ResultFailure,
   OrchestrationV2RunStatus,
   OrchestrationV2TurnItemStatus,
 } from "./orchestrationV2.ts";
@@ -470,6 +471,8 @@ export const OrchestratorMcpThreadDetail = Schema.Struct({
 export type OrchestratorMcpThreadDetail = typeof OrchestratorMcpThreadDetail.Type;
 
 export const OrchestratorMcpThreadRun = Schema.Struct({
+  typedResult: Schema.optional(Schema.Struct({ value: Schema.Unknown })),
+  resultFailure: Schema.optional(OrchestrationV2ResultFailure),
   runId: RunId,
   ordinal: PositiveInt,
   status: OrchestrationV2RunStatus,
@@ -512,6 +515,9 @@ export const OrchestratorMcpThreadReadResult = Schema.Struct({
 export type OrchestratorMcpThreadReadResult = typeof OrchestratorMcpThreadReadResult.Type;
 
 export const OrchestratorMcpThreadSendInput = Schema.Struct({
+  resultSchema: Schema.optional(
+    OrchestrationV2ResultSchema.annotate({ description: "JSON Schema for this turn only." }),
+  ),
   environmentId: OrchestratorMcpEnvironmentTarget,
   threadId: ThreadId,
   message: OrchestratorMcpPrompt,
@@ -546,13 +552,22 @@ export const OrchestratorMcpThreadWaitInput = Schema.Struct({
 export type OrchestratorMcpThreadWaitInput = typeof OrchestratorMcpThreadWaitInput.Type;
 
 export const OrchestratorMcpThreadWaitResult = Schema.Struct({
+  typedResult: Schema.optional(Schema.Struct({ value: Schema.Unknown })),
+  resultFailure: Schema.optional(OrchestrationV2ResultFailure),
   threadId: ThreadId,
   runId: Schema.NullOr(RunId),
   status: OrchestratorMcpThreadStatus,
   timedOut: Schema.Boolean,
   next: Schema.optional(OrchestratorMcpRunningTaskNext),
   /** With untilDelegatedWorkSettled, once settled: the run whose reply is the thread's result. */
-  resultRun: Schema.optional(Schema.Struct({ runId: RunId, status: OrchestrationV2RunStatus })),
+  resultRun: Schema.optional(
+    Schema.Struct({
+      runId: RunId,
+      status: OrchestrationV2RunStatus,
+      typedResult: Schema.optional(Schema.Struct({ value: Schema.Unknown })),
+      resultFailure: Schema.optional(OrchestrationV2ResultFailure),
+    }),
+  ),
 });
 export type OrchestratorMcpThreadWaitResult = typeof OrchestratorMcpThreadWaitResult.Type;
 
@@ -616,6 +631,7 @@ export const OrchestratorMcpProviderCapability = Schema.Struct({
   runtimeModes: Schema.optional(Schema.Array(RuntimeMode)),
   canRunChildTask: Schema.Boolean,
   canRunCrossProviderChildTask: Schema.Boolean,
+  canEnforceResultSchema: Schema.Boolean,
   constraints: Schema.Array(Schema.String),
 });
 export type OrchestratorMcpProviderCapability = typeof OrchestratorMcpProviderCapability.Type;

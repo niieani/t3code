@@ -1077,6 +1077,7 @@ describe("OrchestratorMcpService provider resolution", () => {
           instanceIds.includes(instanceId)
             ? Effect.succeed({
                 instanceId,
+                getCapabilities: () => Effect.succeed(CodexProviderCapabilitiesV2),
               } as unknown as ProviderAdapter.ProviderAdapterV2["Service"])
             : Effect.fail(
                 new ProviderAdapterRegistry.ProviderAdapterRegistryLookupError({ instanceId }),

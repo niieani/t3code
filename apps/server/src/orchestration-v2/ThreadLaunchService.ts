@@ -1,3 +1,4 @@
+import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
 import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
@@ -69,6 +70,7 @@ export type ThreadLaunchWorkspaceStrategy =
     };
 
 export interface ThreadLaunchInitialMessage {
+  readonly resultSchema?: import("@t3tools/contracts").OrchestrationV2Run["resultSchema"];
   readonly messageId?: MessageId;
   readonly scheduledTaskId?: ScheduledTaskId;
   readonly senderThreadId?: ThreadId;
@@ -202,6 +204,7 @@ function failureDetail(error: unknown): string {
 }
 
 const make = Effect.gen(function* () {
+  const schemaAdapters = yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2;
   const projects = yield* ProjectService.ProjectService;
   const setupTracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
   const cloneTracker = yield* ProjectCloneTracker.ProjectCloneTracker;
@@ -839,6 +842,18 @@ const make = Effect.gen(function* () {
         commandId: input.commandId,
         instanceId: input.modelSelection.instanceId,
       });
+      if (input.initialMessage?.resultSchema !== undefined) {
+        const capabilities = yield* schemaAdapters.get(input.modelSelection.instanceId).pipe(
+          Effect.flatMap((adapter) => adapter.getCapabilities()),
+          Effect.mapError(mapError(input, "dispatch-message")),
+        );
+        if (capabilities.turns.supportsOutputSchema !== true) {
+          return yield* mapError(
+            input,
+            "dispatch-message",
+          )("Provider cannot enforce a result schema.");
+        }
+      }
       return yield* Effect.gen(function* () {
         // Recover ids from accepted launch receipts before allocating; retries have no client id and new ids collide with receipts.
         const reusableLaunchReceipt =
@@ -957,6 +972,9 @@ const make = Effect.gen(function* () {
               threadId,
               messageId,
               text: input.initialMessage.text,
+              ...(input.initialMessage.resultSchema === undefined
+                ? {}
+                : { resultSchema: input.initialMessage.resultSchema }),
               ...(input.initialMessage.scheduledTaskId === undefined
                 ? {}
                 : { scheduledTaskId: input.initialMessage.scheduledTaskId }),

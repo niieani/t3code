@@ -93,6 +93,12 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
         const threadId = ThreadId.make(commandId);
         const messageId = MessageId.make(commandId);
         const attachments = input.attachments ?? [];
+        if (input.resultSchema !== undefined && input.message === undefined) {
+          return yield* new OrchestratorMcpFailure({
+            code: "invalid_request",
+            message: "resultSchema requires a first message.",
+          });
+        }
         if (attachments.some((attachment) => !Claims.attachmentIsPendingUpload(attachment)))
           return yield* new OrchestratorMcpFailure({
             code: "invalid_request",
@@ -224,6 +230,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
                   messageId,
                   ...(caller === undefined ? {} : { senderThreadId: caller.id }),
                   text: input.message ?? "",
+                  ...(input.resultSchema === undefined ? {} : { resultSchema: input.resultSchema }),
                   attachments,
                 },
               }),
